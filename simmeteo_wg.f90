@@ -1,0 +1,1977 @@
+      SUBROUTINE SIMMETEO_WG
+!----------------------------------------------------------------------!
+!  PRODUCES PARAMETER FILE TO RUN WEASHO FROM MONTHLY VALUES
+!  MODIFIED BY BAOQUAN LI (AUG. 1988)
+!  CHANGES:* IMPROVED DOCUMENTATION & ADDED PHASES IN CALCULATION OF
+!  HUMIDITY AND WINDSPEED AND ADDED FLEXIBLE INPUT/OUTPUT
+!  FOR VARIOUS UNITS 
+!  INPUT:
+!  USER ENTERS A FILENAME CONTAINING THE FOLLOWING:
+!  REC #1: HEADER ( LESS THEN 69 CHAR)
+!  REC #2: LATITUDE (F5.1), NUMBER OF YEARS TO SIMULATE (I3)
+!  REC #3-14: ONE RECORD PER MONTH, BEGINNING JANUARY, (6F8.0):
+!  A) FRACTION OF WET DAYS (UNITLESS) 
+!  B) RAIN PER WET DAY (MILLIMETER/DAY OR INCH/DAY)
+!  C) MAXIMUM TEMPERATURE (DEG C OR DEG F)
+!  D) MINIMUM TEMPERATURE (DEG C OR DEG F)
+!  E) SOLAR RADIATION (10**6 JOULE/M**2/DAY OR LANGLEY/DAY)
+!  F) INCLUDE/EXCLUDE HUMIDITY (MPAR-VAPOR PRES OR C OR F-DEWPOINT)
+!  G) INCLUDE/EXCLUDE WIND SPEED (METER/SECOND OR MILE/HOUR)
+!  OUTPUT:
+!  MEANS, AMPLITUDES & PHASES FOR MEAN CURVES AND CV CURVES FOR
+!  TEMPERATURES, SOLAR RADIATION AND (WITH/WITHOUT) HUMIDITY ,
+!  AND (WITH/WITHOUT) THE PARAMETERS OF CC & KAY FOR WINDSPEED, 
+!  AND ALPHAP & BETA AND TRANSITION PROBABILITIES FOR RAINFALL,
+!  FOR INPUT TO WEATHGEN AND GENG & AUBURN'S ESTMO
+!
+!----------------------------------------------------------------------!
+use control_parameters
+use global_variables
+USE WGEN_PARAMS_WG
+USE CONTROL_DEFINITIONS_WG
+USE PHYSICAL_PARAMETERS_WG
+!----------------------------------------------------------------------!
+!  Local variables.
+!----------------------------------------------------------------------!
+REAL RFRAC(13),PERWET(12),TMAX(12),TMIN(12)
+REAL SOLRAD(12),VPSR(12),PWDm,WINDS(12),VARN(12)
+!
+	CHARACTER*9 MONTH(12)
+	CHARACTER*69 HEADER
+	CHARACTER*30 INFILE,OUTFIL,FIDATA,OTFIL
+	CHARACTER*2 PWUNIT
+	CHARACTER*3 FRUNIT
+	CHARACTER*8 FUNIT
+	CHARACTER*1 MXUNIT,MIUNIT
+	CHARACTER*1 ANSWER,FSTYLE,VNUM,OPTION,MINP
+	CHARACTER*6 CVAR
+      CHARACTER*9 WSUNIT
+	CHARACTER*7 HYUNIT
+	CHARACTER*11 SRUNIT
+	COMMON /BLK/ FRUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,HYUNIT,WSUNIT
+	COMMON /BLK1/ OUTFIL
+	COMMON NFS
+	DATA INFILE,OTFIL /2*'                              '/
+	DATA KTCF,KRCF/0,0/
+	DATA MONTH/' JANUARY ','FEBRUARY ','  MARCH  ','  APRIL  ', &
+     &  '   MAY   ','  JUNE   ','  JULY   ',' AUGUST  ','SEPTEMBER', &
+     &  ' OCTOBER ','NOVEMBER ','DECEMBER '/
+
+!	WRITE (*,100)
+100	FORMAT(////' **************************************************' &
+     &	       //'                 SIMMETEO  VERSION 1.20 '// &
+     &           '         A PROGRAM TO SIMULATE METEOROLOGICAL '/ &
+     &	 	 '              VARIABLES ON A DAILY BASIS,   '/ &
+     &           '          BASED ON MONTHLY WEATHER SUMMARIES '// &
+     &           '        Agronomy And Range Science Department'/  &
+     &		 '              University of California'/ &
+     &           '                  Davis, Ca. 95616'/ &
+     &		 '                    916-752-6939'//  &
+     &           '                     JULY, 1991.'// &
+     &		 ' **************************************************' &
+     &          ////// ' Type <ENTER> to continue....')                      
+!        READ(*,105) 
+105	FORMAT(A1)
+!        WRITE (*,31)
+31      FORMAT(/////'**************************************************' &
+     &           ///'                 MODIFIED BY '// &
+     &              '      BAOQUAN LI  (KNOWN AS PO CHUEN LEE) '// &
+     &              '               VISITING SCHOLAR'// &
+     &              '           UNIVERSITY OF CALIFORNIA'/ &
+     &              '               DAVIS, CA. U.S.A.'// &
+     &              '**************************************************' &
+     &          ////// ' Type <ENTER> to continue....')
+!        READ(*,105)
+
+	FUNIT='UNITLESS'
+!	WRITE(*,403)
+201	continue
+!201	WRITE(*,203)
+203 	FORMAT(//' *THE FOLLOWING WEATHER VARIABLES CAN BE SIMULATED:'// &
+     &  ' *      1 NUMBER OF WET DAYS',/, &
+     &  ' *      2 RAINFALL ',/, &
+     &  ' *      3 MAXIMUN TEMPERATURE',/, &
+     &  ' *      4 MINIMUM TEMPERATURE',/, &
+     &  ' *      5 SOLAR RADIATION',/, &
+     &  ' *      6 HUMIDITY',/, &
+     &  ' *      7 WIND SPEED'//)
+!	WRITE (*,204)
+204	FORMAT(//' OPTIONS OF VARIABLES TO BE SIMULATED:',//, &
+     &  ' * 1.    EXCLUDE HUMIDITY & WIND SPEED'/, &
+     &  ' * 2.    EXCLUDE HUMIDITY',/,	 &
+     &  ' * 3.    EXCLUDE WIND SPEED',/, &
+     &  ' * 4.    ALL 7 VARIABLES',//, &
+     &  ' * ENTER AN INTEGER NUMBER (1-4) FOR OPTION SELECTION:',/,$)
+!	READ(*,205) FSTYLE
+      FSTYLE = '4'
+205  	FORMAT(A1)
+	IF((FSTYLE.LT.'1') .OR. (FSTYLE.GT.'4')) THEN
+207	 continue
+!207	 WRITE(*,208)
+208      FORMAT(/,' ENTER AN INTEGER NUMBER (1-4) ONLY ',//, &
+     &   '       REENTER PLEASE !')
+	GOTO 201
+	ENDIF
+	NFS=ICHAR(FSTYLE)-48
+	IF (NFS.EQ.1) THEN
+	 ASSIGN 500 TO NFST
+	 ELSEIF (NFS.EQ.2) THEN
+	 ASSIGN 600 TO NFST
+	 ELSEIF (NFS.EQ.3) THEN
+	 ASSIGN 700 TO NFST
+	 ELSE 
+	 ASSIGN 800 TO NFST
+	ENDIF
+!	WRITE (*,403)
+403	FORMAT (///)
+	GOTO NFST (500, 600, 700, 800)
+!
+500	continue
+!500	WRITE(*,210)
+!        WRITE(*,512) FUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT
+512   	FORMAT( ' *  1.  FRACTION OF WET DAY:',A8,/ &
+     &  ' *  2.  RAIN PER WET DAY   :',A2,/ &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/ &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/ &
+     &  ' *  5.  SOLAR RADIATION    :',A11,///)
+515	continue
+!515	WRITE(*,517)
+517	FORMAT(/,' *      OPTIONS:',/, &
+     &  ' *   1 USE UNITS SHOWN ABOVE',/, &
+     &  ' *   2 CHANGE THE UNIT OF RAIN PER WET DAY <MM OR IN>',/, &
+     &  ' *   3 CHANGE THE UNIT OF MAXIMUM TEMPERATURE <C OR F>',/, &
+     &  ' *   4 CHANGE THE UNIT OF MINIMUM TEMPERATURE <C OR F>',/, &
+     &  ' *   5 CHANGE THE UNIT OF SOLAR RADIATION <MJ/M*M/DAY ',  &
+     &  'OR LANGLEY/DAY>',///, &
+     &  ' * ENTER AN INTEGER NUMBER (1-5) FOR OPTION SELECTION :',//,$)
+!	READ(*,219) VNUM
+      VNUM = '1'
+!	WRITE(*,413)
+413	FORMAT(/////////////)
+	IF ((VNUM.LT.'1').OR.(VNUM.GT.'5')) THEN 
+!	WRITE(*,521)
+521	FORMAT(/////,' * ENTER INTEGER NUMBER (1-5) ONLY,',/, &
+     &  ' *   < ENTER 1 FOR NO CHANGES >',//,	 &
+     &  ' * REENTER PLEASE !'/)
+	GOTO 560
+	 ELSEIF (VNUM.EQ.'1') THEN
+!	WRITE(*,413)
+ 	GOTO 400
+	 ELSEIF (VNUM.EQ.'2') THEN 
+522	 continue
+!522	 WRITE(*,413)
+!	 WRITE(*,223)
+	 READ(*,225,ERR=522) NANS
+	IF(NANS.EQ.1) THEN
+	PWUNIT='MM'
+	ELSEIF(NANS.EQ.2) THEN
+	PWUNIT='IN'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,227)
+	  GOTO 522
+	  ENDIF
+	  GOTO 560 
+	  ELSEIF (VNUM.EQ.'3') THEN 
+528	  continue
+!528	  WRITE(*,413)
+!	  WRITE(*,229)
+	  READ(*,225,ERR=528) NANS
+	IF(NANS.EQ.1) THEN
+	MXUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MXUNIT='F'
+	ENDIF
+ 	IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 528
+	  ENDIF
+	  GOTO 560        
+          ELSEIF (VNUM.EQ.'4') THEN 
+534	  continue
+!534	  WRITE(*,413)
+!	  WRITE(*,235)
+	READ(*,225,ERR=534) NANS
+	IF (NANS.EQ.1) THEN
+        MIUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MIUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 534
+	  ENDIF
+	  GOTO 560 
+	  ELSE
+536	continue
+!536	WRITE(*,413)
+!        WRITE(*,237)
+	  READ(*,225,ERR=536) NANS
+	IF(NANS.EQ.1) THEN
+	SRUNIT='MJ/M*M/DAY '
+	ELSEIF(NANS.EQ.2) THEN
+	SRUNIT='LANGLEY/DAY'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,241)
+	  GOTO 536
+	  ENDIF
+	  ENDIF
+560	continue
+!560	WRITE(*,265)
+!	WRITE(*,568) FUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT
+568	FORMAT( ' *  1.  FRACTION OF WET DAY:',A8,/, &
+     &  ' *  2.  RAIN PER WET DAY   :',A2,/, &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/, &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/, &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/)
+! 	WRITE(*,285)
+	GOTO 515
+
+600	continue
+!600	WRITE(*,210)
+!        WRITE(*,612) FUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,WSUNIT
+612   	FORMAT( ' *  1.  FRACTION OF WET DAY:',A8,/ &
+     &  ' *  2.  RAIN PER WET DAY   :',A2,/ &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/ &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/ &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/ &
+     &  ' *  6.  WIND SPEED         :',A9,//)
+615	continue
+!615	WRITE(*,617)
+617	FORMAT(//,' *      OPTIONS:',//, &
+     &  ' *   1 USE UNITS SHOWN ABOVE',/, &
+     &  ' *   2 CHANGE THE UNIT OF RAIN PER WET DAY <MM OR IN>',/, &
+     &  ' *   3 CHANGE THE UNIT OF MAXIMUM TEMPERATURE <C OR F>',/, &
+     &  ' *   4 CHANGE THE UNIT OF MINIMUM TEMPERATURE <C OR F>',/, &
+     &  ' *   5 CHANGE THE UNIT OF SOLAR RADIATION <MJ/M*M/DAY ' &
+     &         'OR LANGLEY/DAY>'/ &
+     &  ' *   6 CHANGE THE UNIT OF WIND SPEED <METER/SEC OR ' &
+     &         'MILE/HOUR>',//, &
+     &  ' * ENTER AN INTEGER NUMBER (1-6) FOR OPTION SELECTION :',/, $)
+!	READ(*,219) VNUM
+      VNUM = '1'
+!	WRITE(*,413)
+	IF ((VNUM.LT.'1').OR.(VNUM.GT.'6')) THEN 
+!	WRITE(*,621)
+621	FORMAT(/,' * ENTER INTEGER NUMBER (1-6) ONLY,',/, &
+     &  ' *   < ENTER 1 FOR NO CHANGES >',//,	 &
+     &  ' * REENTER PLEASE !'/)
+	GOTO 660
+	 ELSEIF (VNUM.EQ.'1') THEN
+! 	WRITE (*,403)
+	GOTO 400
+	 ELSEIF (VNUM.EQ.'2') THEN 
+622	continue
+!622	WRITE(*,413)
+!	 WRITE(*,223)
+	 READ(*,225,ERR=622) NANS
+	IF(NANS.EQ.1) THEN
+	PWUNIT='MM'
+	ELSEIF(NANS.EQ.2) THEN
+	PWUNIT='IN'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,227)
+	  GOTO 622
+	  ENDIF
+	  GOTO 660 
+	  ELSEIF (VNUM.EQ.'3') THEN 
+628	continue
+!628	WRITE(*,413)
+!        WRITE(*,229)
+	READ(*,225,ERR=628) NANS
+	IF(NANS.EQ.1) THEN
+	MXUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MXUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 628
+	  ENDIF
+	  GOTO 660        
+          ELSEIF (VNUM.EQ.'4') THEN 
+634	 continue
+!634	 WRITE(*,413)
+!	 WRITE(*,235)
+	READ(*,225,ERR=634) NANS
+	IF(NANS.EQ.1) THEN
+	MIUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MIUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 634
+	  ENDIF
+	  GOTO 660 
+	  ELSEIF(VNUM.EQ.'5') THEN
+636     continue
+!636     WRITE(*,413)
+!	  WRITE(*,237)
+	  READ(*,225,ERR=636) NANS
+	IF(NANS.EQ.1) THEN
+	SRUNIT='MJ/M*M/DAY '
+	ELSEIF(NANS.EQ.2) THEN
+	SRUNIT='LANGLEY/DAY'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,241)
+	  GOTO 636
+	  ENDIF
+	  GOTO 660 
+          ELSE 
+648	continue
+!648	WRITE(*,413)
+!	  WRITE(*,249)
+	  READ(*,225,ERR=648) NANS
+	IF(NANS.EQ.1) THEN
+	WSUNIT='METER/SEC' 
+	ELSEIF(NANS.EQ.2) THEN
+	WSUNIT='MILE/HOUR'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,253)
+	  GOTO 648
+	  ENDIF
+	  ENDIF
+660 	continue
+!660 	WRITE(*,265)
+!	WRITE(*,668) FUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,WSUNIT
+668	FORMAT( ' *  1.  FRACTION OF WET DAY:',A8,/, &
+     &  ' *  2.  RAIN PER WET DAY   :',A2,/, &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/, &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/, &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/, &
+     &  ' *  6.  WIND SPEED         :',A9/)
+! 	WRITE(*,285)
+	GOTO 615
+700	continue
+!700	WRITE(*,210)
+!        WRITE(*,712) FUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,HYUNIT
+712   	FORMAT(/' *  1.  FRACTION OF WET DAY:',A8,/ &
+     &  ' *  2.  RAIN PER WET DAY   :',A2,/ &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/ &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/ &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/ &
+     &  ' *  6.  HUMIDITY           :',A7,//)
+715	continue
+!715	WRITE(*,717)
+717	FORMAT(' *       OPTIONS:',//, &
+     &  ' *   1 USE UNITS SHOWN ABOVE',/, &
+     &  ' *   2 CHANGE THE UNIT OF RAIN PER WET DAY <MM OR IN>',/, &
+     &  ' *   3 CHANGE THE UNIT OF MAXIMUM TEMPERATURE <C OR F>',/, &
+     &  ' *   4 CHANGE THE UNIT OF MINIMUM TEMPERATURE <C OR F>',/, &
+     &  ' *   5 CHANGE THE UNIT OF SOLAR RADIATION <MJ/M*M/DAY ' &
+     &        'OR LANGLEY/DAY>'/ &
+     &  ' *   6 CHANGE THE UNIT OF HUMIDITY <MPa(VP) OR C(DEWP) ' &
+     &        'OR F(DEWP)>',//, &
+     &  ' * ENTER AN INTEGER NUMBER (1-6) FOR OPTION SELECTION :',//,$)
+!	READ(*,219) VNUM
+      VNUM = '1'
+!	WRITE(*,413)
+	IF ((VNUM.LT.'1').OR.(VNUM.GT.'6')) THEN 
+!	WRITE(*,721)
+721	FORMAT(/,' * ENTER INTEGER NUMBER (1-6) ONLY,',/, &
+      &  ' *   < ENTER 1 FOR NO CHANGES >',//,	 &
+     &  ' * REENTER PLEASE !'/)
+	GOTO 760
+	 ELSEIF (VNUM.EQ.'1') THEN
+!	WRITE(*,403)
+ 	GOTO 400
+	 ELSEIF (VNUM.EQ.'2') THEN 
+722	continue
+!722	WRITE(*,413)
+!	 WRITE(*,223)
+	 READ(*,225,ERR=722) NANS
+	IF(NANS.EQ.1) THEN
+	PWUNIT='MM'
+	ELSEIF(NANS.EQ.2) THEN
+	PWUNIT='IN'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,227)
+	  GOTO 722
+	  ENDIF
+	  GOTO 760 
+	  ELSEIF (VNUM.EQ.'3') THEN 
+728	 continue
+!728	 WRITE(*,413)
+!	 WRITE(*,229)
+	READ(*,225,ERR=728) NANS
+	IF(NANS.EQ.1) THEN
+	MXUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MXUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 728
+	  ENDIF
+	  GOTO 760        
+          ELSEIF (VNUM.EQ.'4') THEN 
+734	continue
+!734	WRITE(*,413)
+!	WRITE(*,235)
+	READ(*,225,ERR=734) NANS
+	IF(NANS.EQ.1) THEN
+	MIUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MIUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 734
+	  ENDIF
+	  GOTO 760 
+	  ELSEIF(VNUM.EQ.'5') THEN
+736     continue
+!736     WRITE(*,413)
+!	WRITE(*,237)
+	READ(*,225,ERR=736) NANS
+	IF(NANS.EQ.1) THEN
+	SRUNIT='MJ/M*M/DAY '
+	ELSEIF(NANS.EQ.2) THEN
+	SRUNIT='LANGLEY/DAY'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,241)
+	  GOTO 736
+	  ENDIF
+	  GOTO 760 
+          ELSE 
+742	continue
+!742	WRITE(*,413)
+!	WRITE(*,243)
+	READ(*,225,ERR=742) NANS
+	IF(NANS.EQ.1) THEN
+	HYUNIT='MPa(VP)'
+	ELSEIF (NANS.EQ.2) THEN
+	HYUNIT='C(DEWP)'
+	ELSEIF (NANS.EQ.3) THEN
+	HYUNIT='F(DEWP)'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2).AND. &
+     &       (NANS.NE.3))  THEN
+!          WRITE(*,247)
+	  GOTO 742
+	  ENDIF
+	  GOTO 760 
+	  ENDIF
+760 	continue
+!760 	WRITE(*,265)
+!	WRITE(*,768) FUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,HYUNIT
+768	FORMAT( ' *  1.  FRACTION OF WET DAY:',A8,/, &
+     &  ' *  2.  RAIN PER WET DAY   :',A2,/, &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/, &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/, &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/, &
+     &  ' *  6.  HUMIDITY           :',A7,//)
+! 	WRITE(*,285)
+	GOTO 715
+
+800	continue
+!800	WRITE(*,210)
+210	FORMAT(/,' * THE STANDARD UNITS OF THE INPUT FILE ARE :',/)
+!        WRITE(*,212) FUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,HYUNIT,WSUNIT
+212   	FORMAT( ' *  1.  FRACTION OF WET DAY:',A8,/ &
+     &  ' *  2.  RAIN PER WET DAY   :',A2,/ &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/ &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/ &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/ &
+     &  ' *  6.  HUMIDITY           :',A7,/ &
+     &  ' *  7.  WIND SPEED         :',A9,/)
+215	continue
+!215	WRITE(*,217)
+217	FORMAT(' *      OPTIONS:',//, &
+     &  ' *   1 USE UNITS SHOWN ABOVE',/, &
+     &  ' *   2 CHANGE THE UNIT OF RAIN PER WET DAY <MM OR IN>',/, &
+     &  ' *   3 CHANGE THE UNIT OF MAXIMUM TEMPERATURE <C OR F>',/, &
+     &  ' *   4 CHANGE THE UNIT OF MINIMUM TEMPERATURE <C OR F>',/, &
+     &  ' *   5 CHANGE THE UNIT OF SOLAR RADIATION <MJ/M*M/DAY ' &
+     &          'OR LANGLEY/DAY>'/ &
+     &  ' *   6 CHANGE THE UNIT OF HUMIDITY <MPa(VP) OR ' &
+     &          'C(DEWP) OR F(DEWP)>'/ &
+     &  ' *   7 CHANGE THE UNIT OF WIND SPEED <METER/SEC OR' & 
+     &         ' MILE/HOUR>',//, &
+     &  ' * ENTER AN INTEGER NUMBER (1-7) FOR OPTION SELECTION :',/, $)
+!	READ(*,219) VNUM
+      VNUM = '1'
+!	WRITE(*,413)
+219	FORMAT(A1)
+	IF ((VNUM.LT.'1').OR.(VNUM.GT.'7')) THEN 
+!	WRITE(*,221)
+221	FORMAT(/,' * ENTER INTEGER NUMBER (1-7) ONLY,',/, &
+     &  ' *   < ENTER 1 FOR NO CHANGES >',//,	 &
+     &  ' * REENTER PLEASE !'/)
+	GOTO 260
+	 ELSEIF (VNUM.EQ.'1') THEN
+!	WRITE(*,403)
+ 	GOTO 400
+	 ELSEIF (VNUM.EQ.'2') THEN 
+222	 continue
+!222	 WRITE(*,413)
+!	 WRITE(*,223)
+223	 FORMAT(/,' *   CHOOSE THE UNIT OF RAINFALL PER WET DAY',//, &
+     &   ' *        1   MM (MILLIMETER/DAY)',/, &
+     &   ' *        2   IN (INCH/DAY)',//, &
+     &   ' *   ENTER AN INTEGER NUMBER (1 OR 2)',///)
+	 READ(*,225,ERR=222) NANS
+225	 FORMAT(I2) 
+	IF(NANS.EQ.1) THEN
+	PWUNIT='MM'
+	ELSEIF(NANS.EQ.2) THEN
+	PWUNIT='IN'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,227)
+227	  FORMAT(/,' * ENTER <1 (FOR MILLIMETER/DAY)> OR ',/, &
+     &   ' *       <2 (FOR INCH/DAY)> ONLY,',//, &
+     &   ' *  REENTER PLEASE !'/)
+	  GOTO 222
+	  ENDIF
+	  GOTO 260 
+	  ELSEIF (VNUM.EQ.'3') THEN 
+228	  continue
+!228	  WRITE(*,413)
+!	  WRITE(*,229)
+229	  FORMAT(/,' * CHOOSE THE UNIT OF MAXIMUM TEMPERATURE:',//, &
+     &    ' *        1   C',/, &
+     &    ' *        2   F',//, &
+     &    ' *	ENTER AN INTEGER (1 OR 2)',///)
+	  READ(*,225,ERR=228) NANS
+	IF(NANS.EQ.1) THEN
+	MXUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MXUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+233	  FORMAT(/,' * ENTER <1 (FOR C)> OR <2 (FOR F)> ONLY,',//, &
+     &    ' *  REENTER PLEASE !'/)
+	  GOTO 228
+	  ENDIF
+	  GOTO 260        
+          ELSEIF (VNUM.EQ.'4') THEN 
+234	  continue
+!234	  WRITE(*,413)
+!	  WRITE(*,235)
+235	  FORMAT(/,' * CHOOSE THE UNIT OF MINIMUM TEMPERATURE :',//, &
+     &    ' *        1   C',/, &
+     &    ' *        2   F',//, &
+     &    ' *	ENTER AN INTEGER (1 OR 2)',///)
+	  READ(*,225,ERR=234) NANS
+        IF (NANS.EQ.1) THEN
+        MIUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MIUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 234
+	  ENDIF
+	  GOTO 260 
+	  ELSEIF(VNUM.EQ.'5') THEN
+236       continue
+!236       WRITE(*,413)
+!	  WRITE(*,237)
+237	  FORMAT(/,' *   CHOOSE THE SOLAR UNIT OF RADIATION :',//, &
+     &    ' *        1   MJ/M*M/DAY ',/, &
+     &    ' *        2   LANGLEY/DAY',//, &
+     &    ' *   ENTER AN INTEGER (1 OR 2)',///)
+	  READ(*,225,ERR=236) NANS
+	IF(NANS.EQ.1) THEN
+	SRUNIT='MJ/M*M/DAY '
+	ELSEIF(NANS.EQ.2) THEN
+	SRUNIT='LANGLEY/DAY'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,241)
+241	  FORMAT(/,' * ENTER <1 (FOR MJ/M*M/DAY)> ',/, &
+     &   ' *    OR <2 (FOR LANGLEY/DAY)> ONLY,',//, &
+     &   ' *  REENTER PLEASE !'//)
+	  GOTO 236
+	  ENDIF
+	  GOTO 260 
+          ELSEIF (VNUM.EQ.'6') THEN 
+242	  continue
+!242	  WRITE(*,413)
+!	  WRITE(*,243)
+243       FORMAT(/,' *   CHOOSE THE UNIT OF HUMIDITY :',//, &
+     &    ' *        1   MPa(VAPOR PRESSURE)',/, &
+     &    ' *        2   C(DEWPOINT)',/, &
+     &    ' *        3   F(DEWPOINT)',//, &
+     &    ' *   ENTER AN INTEGER (1 OR 2 OR 3)',///)
+	  READ(*,225,ERR=242) NANS
+	IF(NANS.EQ.1) THEN
+	HYUNIT='MPa(VP)'
+	ELSEIF (NANS.EQ.2) THEN
+	HYUNIT='C(DEWP)'
+	ELSEIF (NANS.EQ.3) THEN
+	HYUNIT='F(DEWP)'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2).AND. &
+     &       (NANS.NE.3))  THEN
+!          WRITE(*,247)
+247	  FORMAT(/,' * ENTER <1 (FOR MPa(VAPOR PRESSURE))> OR',/,  &
+     &   ' *       <2 (FOR C(DEWPOINT))> OR',/,  &
+     &   ' *       <3 (FOR F(DEWPOINT))> ONLY',//, &
+     &   ' *  REENTER PLEASE !'///)
+	  GOTO 242
+	  ENDIF
+	  GOTO 260 
+	  ELSEIF (VNUM.EQ.'7') THEN 
+248	  continue
+!248	  WRITE(*,413)
+!	  WRITE(*,249)
+249	  FORMAT(/,' * CHOOSE THE UNIT OF WIND SPEED :',//, &
+     &    ' *        1   METER/SEC',/, &
+     &    ' *        2   MILE/HOUR',//, &
+     &    ' *   ENTER AN INTEGER (1 OR 2) ',///)
+	  READ(*,225,ERR=248) NANS
+	IF(NANS.EQ.1) THEN
+	WSUNIT='METER/SEC' 
+	ELSEIF(NANS.EQ.2) THEN
+	WSUNIT='MILE/HOUR'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,253)
+253	  FORMAT(/,' * ENTER < 1   FOR (METER/SEC) >',/, &
+     &  ' *   OR  < 2   FOR (MILE/HOUR) >   ONLY,',//, &
+     &    ' *  REENTER PLEASE !'/)
+	  GOTO 248
+	  ENDIF
+	  ENDIF
+260 	continue
+!260 	WRITE(*,265)
+265	FORMAT(////,' * NOW THE NEW UNITS ARE:'/)
+!	WRITE(*,268) FUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,HYUNIT,WSUNIT
+268	FORMAT( ' *  1.  FRACTION OF WET DAY:',A8,/, &
+     &  ' *  2.  RAIN PER WET DAY   :',A2,/, &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/, &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/, &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/, &
+     &  ' *  6.  HUMIDITY           :',A7,/, &
+     &  ' *  7.  WIND SPEED         :',A9/)
+! 	WRITE(*,285)
+285	FORMAT(' * MORE CHANGES ?')
+	GOTO 215
+!
+400 	continue
+!400 	WRITE (*,410)
+410	FORMAT(' * OPTION FOR THE INPUT METHOD :',//,	  &
+     &  ' *     1 DATA FILE',/, &
+     &  ' *     2 KEY-IN',//, &
+     &  ' *  ENTER A INTEGER (1-2) FOR OPTION SELECTION :',//,$)
+!	READ(*,420) MINP
+      MINP = '1'
+420	FORMAT(A1)
+!	WRITE(*,416)
+416	FORMAT(////////////////)
+	IF((MINP.NE.'1').AND.(MINP.NE.'2')) THEN
+!	WRITE (*,430)
+430	FORMAT(//,' * ENTER <1> OR <2> ONLY ! ',/, &
+     &  ' *   REENTER PLEASE !',/)  
+!	WRITE(*,413)
+	GOTO 400
+	ELSEIF (MINP.EQ.'1') THEN
+	GOTO 119
+	ELSE
+
+421	FORMAT(/////////////////////)
+1100    continue
+!1100    WRITE(*,421)
+!	WRITE(*,166)
+	READ(*,1108,ERR=1100) HEADER
+1108	FORMAT(A69)
+	  IF(LEN(HEADER).GT.69) THEN
+!          WRITE(*,170)
+	  GOTO 1100
+	  ENDIF
+1110	 continue
+!1110	 WRITE(*,421)
+!	 WRITE(*,174)
+	  READ(*,176,ERR=1110) ALAT
+	  IF((ALAT.LT.0).OR.(ALAT.GT.90)) THEN
+!	  WRITE(*,177)
+	  GOTO 1110
+	  ENDIF
+1120	  continue
+!1120	  WRITE(*,421)
+!	  WRITE(*,180)
+	  READ(*,182,ERR=1120) NYR
+	  IF(NYR.LT.1) THEN
+!	  WRITE(*,183)
+	  GOTO 1120
+	  ENDIF
+	  GOTO 154
+	ENDIF
+119	continue
+!119	WRITE(*,421)
+!	WRITE (*, 120)
+120	FORMAT(/' INPUT FILENAME (MONTHLY MEANS): ',$)
+!----------------------------------------------------------------------!
+!	READ (*, 130, ERR=119) INFILE
+!      INFILE = 'penn.mm.dq'
+!----------------------------------------------------------------------!
+130	FORMAT (A30)
+!----------------------------------------------------------------------!
+!	OPEN (UNIT=1, STATUS='OLD', FILE=INFILE, ERR=119)
+!
+!	READ(1,152) HEADER
+152	FORMAT(A69)
+!	READ(1,*) ALAT,NYR
+!----------------------------------------------------------------------!
+      NYR = 1
+      ALAT = lat (i0,j0)
+!----------------------------------------------------------------------!
+154	continue
+!154	WRITE(*,416)
+!	WRITE(*,156) 
+156	FORMAT(' * THE SETUP INFORMATION IS:')
+!	WRITE(*,158) HEADER,ALAT,NYR
+158	FORMAT(//' * 1 TITLE:',A69, &
+     &  ' * 2 LATITUDE OF THE LOCATION IN DEGREES:',F6.1,/, &
+     &  ' * 3 YEARS OF DATA TO BE GENERATED      :',I5,///)
+! 	WRITE(*,985)
+985	FORMAT(/,' *   OPTION :'//, &
+     &  ' *     0 USE SPECIFICATIONS SHOWN ABOVE',/, &	
+     &  ' *     1 CHANGE THE TITLE',/, &
+     &  ' *     2 CHANGE THE LATITUDE OF THE LOCATION',/, &
+     &  ' *     3 CHANGE THE YEARS OF DATA TO BE GENERATED',//)
+!	WRITE(*,160)
+160	FORMAT(' * ENTER AN INTEGER NUMBER <0-3> FOR OPTION SELECTION :' &
+     &  ,//,$)
+!	READ(*,219) OPTION
+      OPTION = '0'
+!	WRITE(*,421)
+	IF ((OPTION.LT.'0').OR.(OPTION.GT.'3')) THEN 
+!	WRITE(*,162)
+162	FORMAT(/,' * ENTER INTEGER NUMBER (0-3) ONLY,',//, &
+     &  ' * REENTER PLEASE !'/)
+	GOTO 154
+	 ELSEIF (OPTION.EQ.'0') THEN
+	 GOTO 196
+	 ELSEIF (OPTION.EQ.'1') THEN 
+164	 continue
+!164	 WRITE(*,166)
+166	 FORMAT(//,' * ENTER THE TITLE ( LESS THEN 69 CHARACTERS)',$)
+	 READ(*,168,ERR=164) HEADER
+168	 FORMAT(A69) 
+	  IF(LEN(HEADER).GT.69) THEN
+!          WRITE(*,170)
+170	  FORMAT(/,' * LESS THEN 69 CHARACTERS,',//, &
+     &   ' *  REENTER PLEASE !'/)
+	  GOTO 164
+	  ENDIF
+	  GOTO 154 
+	  ELSEIF (OPTION.EQ.'2') THEN 
+172	  continue
+!172	  WRITE(*,174)
+174    FORMAT(/,' * ENTER THE LATITUDE IN DEGREES (BETWEEN -90 AND 90)')
+     	  READ(*,176,ERR=172) ALAT
+176	  FORMAT(F6.0) 
+	  IF((ALAT.LT.-90).OR.(ALAT.GT.90)) THEN
+!	  WRITE(*,177)
+177	  FORMAT(/,' * MUST BE A REAL NUMBER WITHIN (-90 and 90),',/, &
+     &    ' * REENTER PLEASE !',/)
+	  GOTO 172
+	  ENDIF
+	  GOTO 154        
+          ELSEIF (OPTION.EQ.'3') THEN 
+178	  continue
+!178	  WRITE(*,180)
+180	  FORMAT(/,' * ENTER A POSITIVE NUMBER OF YEARS',/, &
+     &     ' *      TO BE GENERATED ',/)
+	  READ(*,182,ERR=178) NYR
+182       FORMAT(I5)
+	  IF(NYR.LT.1) THEN
+!	  WRITE(*,183)
+183	  FORMAT(' * MUST BE A POSITIVE INTEGER,'//, &
+     &    ' * REENTER PLEASE !',/)
+	  GOTO 178
+	  ENDIF
+	  GOTO 154 
+	  ENDIF
+!	WRITE(*,413)
+196	IF(MINP.EQ.'1') THEN
+	GOTO 1150
+	ELSE
+!	WRITE(*,416)
+!	WRITE(*,199)	
+199	FORMAT(' * ENTER THE MONTHLY MEANS :')
+	DO 1333 I=1,12
+!	WRITE (*,1301) ' *    FOR',MONTH(I)
+1301	FORMAT(/,A9,1X,A9)
+	IF(NFS.EQ.1) THEN
+1302	continue
+!1302	WRITE (*,1303) 'RFRAC(',I,')','PERWET(',I,')','TMAX(',I,')', &
+!     &  'TMIN(',I,')','SOLRAD(',I,')'
+1303 	FORMAT(2X,A6,I2,A1,2X,A7,I2,A1,2X,A5,I2,A1,2X,A5,I2,A1,2X,A7, &
+     &  I2,A1)
+	  READ(*,*,ERR=1302) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I)
+	ELSEIF(NFS.EQ.3) THEN
+1304	continue
+!1304	WRITE (*,1305) 'RFRAC(',I,')','PERWET(',I,')','TMAX(',I,')', &
+!     &  'TMIN(',I,')','SOLRAD(',I,')','VPAR(',I,')'
+1305	FORMAT(2X,A6,I2,A1,2X,A7,I2,A1,2X,A5,I2,A1,2X,A5,I2,A1,2X,A7, &
+     &  I2,A1,2X,A5,I2,A1) 
+	  READ(*,*,ERR=1304) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+     &    ,VPSR(I)
+	ELSEIF(NFS.EQ.2) THEN
+1306	continue
+!1306	WRITE (*,1307) 'RFRAC(',I,')','PERWET(',I,')','TMAX(',I,')', &
+!     &  'TMIN(',I,')','SOLRAD(',I,')','WINDS(',I,')'
+1307	FORMAT(2X,A6,I2,A1,2X,A7,I2,A1,2X,A5,I2,A1,2X,A5,I2,A1,2X,A7, &
+     &  I2,A1,2X,A6,I2,A1)
+   	READ(*,*,ERR=1306) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+     &    ,WINDS(I)
+	ELSE   	  
+1308	continue
+!1308	WRITE (*,1309) 'RFRAC(',I,')','PERWET(',I,')','TMAX(',I,')', &
+!     &  'TMIN(',I,')','SOLRAD(',I,')','VPAR(',I,')','WINDS(',I,')'
+1309	FORMAT(2X,A6,I2,A1,2X,A7,I2,A1,2X,A5,I2,A1,2X,A5,I2,A1,2X,A7, &
+     &  I2,A1,2X,A5,I2,A1,2X,A6,I2,A1)
+	READ(*,*,ERR=1308) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+     &    ,VPSR(I),WINDS(I)
+	ENDIF
+1333	CONTINUE
+	GOTO 1331
+	ENDIF
+1150	DO 1300 I=1,12
+	IF(NFS.EQ.1) THEN
+	  READ(1,*) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I)
+	ELSEIF(NFS.EQ.3) THEN
+	  READ(1,*) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+     &    ,VPSR(I)
+	ELSEIF(NFS.EQ.2) THEN
+	  READ(1,*) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+     &    ,WINDS(I)
+	ELSE   	  
+!	READ(1,*) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+!     &  ,VPSR(I),WINDS(I)
+!----------------------------------------------------------------------!
+      RFRAC (I) = rfrac_mm(I)
+      PERWET(I) = pwet_mm(I)
+      TMAX  (I) = tmax_mm(I)
+      TMIN  (I) = tmin_mm(I)
+      SOLRAD(I) = solrad_mm(I)
+      VPSR  (I) = dq_mm(I)
+      WINDS (I) = wind_mm(I)
+!----------------------------------------------------------------------!
+	ENDIF
+1300    CONTINUE
+!----------------------------------------------------------------------!
+1331	CONTINUE
+!1331	CLOSE(UNIT=1)
+!----------------------------------------------------------------------!
+1341	continue
+!1341	WRITE(*,421)
+	IF(NFS.EQ.1) THEN
+!	WRITE (*,1403) ' 1.RFRAC ',' 2.PERWET','  3.TMAX ', &
+!     &  '  4.TMIN ',' 5.SOLRAD'
+1403 	FORMAT(4X,5A9)
+	ELSEIF(NFS.EQ.3) THEN
+!	WRITE (*,1409) ' 1.RFRAC ',' 2.PERWET','  3.TMAX ', &
+!     &  '  4.TMIN ',' 5.SOLRAD','  6.VPAR '
+1409	FORMAT(4X,6A9)
+	ELSEIF(NFS.EQ.2) THEN
+!	WRITE (*,1409) ' 1.RFRAC ',' 2.PERWET','  3.TMAX ', &
+!     &  '  4.TMIN ',' 5.SOLRAD','  6.WINDS'
+	ELSE
+!	WRITE (*,1413) ' 1.RFRAC ',' 2.PERWET','  3.TMAX ', &
+!     &  '  4.TMIN ',' 5.SOLRAD ','  6.VPAR ',' 7.WINDS '
+1413	FORMAT(4X,7A9)
+	ENDIF
+	DO 1400 I=1,12
+	IF(NFS.EQ.1) THEN
+!	  WRITE(*,1407) I,RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I)
+1407	FORMAT(2X,I2,5(F8.3,1X))
+	ELSEIF(NFS.EQ.3) THEN
+1411	FORMAT(2X,I2,6(F8.3,1X)) 
+!	  WRITE(*,1411) I,RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+!     &  ,VPSR(I)
+	ELSEIF(NFS.EQ.2) THEN
+!   	WRITE(*,1411) I,RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+!     &    ,WINDS(I)
+	ELSE   	  
+!	WRITE(*,1415) I,RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+!     &    ,VPSR(I),WINDS(I)
+1415	FORMAT(2X,I2,7(F8.3,1X))	
+	ENDIF
+1400	CONTINUE
+	IF (NFS.EQ.1) THEN
+	 ASSIGN 1401 TO NFST
+	 ELSEIF (NFS.EQ.2) THEN
+	 ASSIGN 1501 TO NFST
+	 ELSEIF (NFS.EQ.3) THEN
+	 ASSIGN 1601 TO NFST
+	 ELSE 
+	 ASSIGN 1701 TO NFST
+	ENDIF
+	GOTO NFST (1401, 1501, 1601, 1701)
+1401	continue
+!1401	WRITE (*,1417)
+1417	FORMAT(//' *   OPTIONS:',//, &
+     &  ' *     0   NO FURTHER CHANGES; DO NOT SAVE THE DATA',/, &
+     &  ' *     1   SAVE THE CURRENT DATA',/, &
+     &  ' *     2   MAKE A CHANGE IN THE INPUT DATA',// &
+     &  ' *   ENTER AN INTEGER (0-2) FOR OPTION SELECTION :',//,$)
+!	READ(*,105) ANSWER
+      ANSWER = '0'
+	IF((ANSWER.LT.'0').OR.(ANSWER.GT.'2')) THEN
+!	WRITE(*,421)
+!	WRITE(*,1419)
+1419	FORMAT(//' * ENTER <0> OR <1> OR <2> ONLY',/, &
+     &  ' *     REENTER PLEASE !',/)
+	GOTO 1401
+	ELSEIF (ANSWER.EQ.'0') THEN
+!	WRITE(*,421)
+	GOTO 140
+	ELSEIF (ANSWER.EQ.'1') THEN
+1421	continue
+!1421	WRITE(*,421)
+!	WRITE(*,1423)
+1423	FORMAT(//////' * ENTER THE FILE NAME FOR SAVING DATA:',/,$)
+!	READ(*,130, ERR=1421) FIDATA
+!	OPEN(UNIT=1,STATUS='UNKNOWN',FILE=FIDATA,ERR=1421)
+!	WRITE(1,1420) HEADER,ALAT,NYR
+1420	FORMAT(A69/F6.1,I5)
+1424 	FORMAT(2X,5(F8.3,1X))
+	DO 1425 I=1,12
+!	  WRITE(1,1424) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I)
+1425	CONTINUE
+!	CLOSE(UNIT=1)
+	GOTO 140
+	ELSEIF (ANSWER.EQ.'2') THEN
+!	WRITE(*,421)
+1427    continue
+!1427    WRITE(*,1428)
+1428	FORMAT(///' *   OPTIONS FOR THE VARIABLE TO BE CHANGED:',//, &
+     &  ' *     1  FRACTION OF WET DAY',/, &
+     &  ' *     2  RAIN PER WET DAY',/, &
+     &  ' *     3  MAXIMUM TEMPERATURE',/, &
+     &  ' *     4  MINIMUM TEMPERATURE',/, &
+     &  ' *     5  SOLAR RADIATION',// &
+     &  ' * ENTER AN INTEGER NUMBER (1-5) FOR SELECTION :',//,$)
+	READ (*,105) OPTION
+!	WRITE(*,416)
+	IF((OPTION.LT.'1').OR.(OPTION.GT.'5')) THEN
+!	WRITE(*,1431)
+1431	FORMAT(//' * ENTER INTEGER NUMBER (1-5) ONLY',/, &
+     &  ' *      REENTER PLEASE ! ',/)
+	GOTO 1427 
+	ENDIF
+	
+1432	continue
+!1432	WRITE(*,1433)
+1433	FORMAT(///' * ENTER THE ROW NUMBER (1-12) ',/, &
+     &  ' * FOR THE MONTH IN WHICH TO MAKE THE CHANGE:',//)
+	READ(*,1434,ERR=1432) NROW
+!	WRITE(*,421)
+1434	FORMAT(I2)
+	IF((NROW.LT.1).OR.(NROW.GT.12)) THEN
+!	WRITE(*,1436)
+1436	FORMAT(' * ENTER AN INTEGER NUMBER (1-12) ONLY',/, &
+     &  ' *      REENTER PLEASE',//)
+	GOTO 1432	
+ 	ENDIF
+	IF (OPTION.EQ.'1') THEN
+	CVAR=' RFRAC'
+	ELSEIF(OPTION.EQ.'2') THEN
+	CVAR='PERWET'
+	ELSEIF(OPTION.EQ.'3') THEN
+	CVAR=' TMAX '
+	ELSEIF(OPTION.EQ.'4') THEN
+	CVAR=' TMIN '
+	ELSE
+	CVAR='SOLRAD'
+	ENDIF
+1437	continue
+!1437	WRITE(*,1438) CVAR,NROW
+1438	FORMAT(' * ENTER THE DATA :',A6,'(',I2,')'/)
+	READ(*,*,ERR=1437) VARN(NROW)
+	IF (OPTION.EQ.'1') THEN
+	RFRAC(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'2') THEN
+	PERWET(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'3') THEN
+	TMAX(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'4') THEN
+	TMIN(NROW)=VARN(NROW)
+	ELSE
+	SOLRAD(NROW)=VARN(NROW)
+	ENDIF
+	GOTO 1341 
+	ENDIF
+	CLOSE(UNIT=1)
+	GOTO 140
+1501	continue
+!1501	WRITE (*,1417)
+!	READ(*,105) ANSWER
+      ANSWER = '0'
+!	WRITE(*,416)
+	IF((ANSWER.LT.'0').OR.(ANSWER.GT.'2')) THEN
+!	WRITE(*,1419)
+	GOTO 1501
+	ELSEIF (ANSWER.EQ.'0') THEN
+	GOTO 140
+	ELSEIF (ANSWER.EQ.'1') THEN
+1521	continue
+!1521	WRITE(*,1423)
+!	READ(*,130, ERR=1521) FIDATA
+!	OPEN(UNIT=1,STATUS='UNKNOWN',FILE=FIDATA,ERR=1521)
+!	WRITE(1,1420) HEADER,ALAT,NYR
+1523	FORMAT(2X,6(F8.3,1X))
+	DO 1525 I=1,12
+!	  WRITE(1,1523) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+!     &    ,WINDS(I)
+1525	CONTINUE
+!	CLOSE(UNIT=1)
+	GOTO 140
+	ELSEIF (ANSWER.EQ.'2') THEN
+!	WRITE(*,421)
+1527	continue
+!1527	WRITE(*,1528)
+1528	FORMAT(//' *   OPTIONS FOR THE VARIABLE TO BE CHANGED:',//,	 &
+     &  ' *     1  FRACTION OF WET DAY',/, &
+     &  ' *     2  RAIN PER WET DAY',/, &
+     &  ' *     3  MAXIMUM TEMPERATURE',/, &
+     &  ' *     4  MINIMUM TEMPERATURE',/, &
+     &  ' *     5  SOLAR RADIATION',/, &
+     &  ' *     6  WIND SPEED',//, &
+     &  ' * ENTER AN INTEGER NUMBER (1-6) FOR SELECTION :',//,$)
+	READ (*,105) OPTION
+!	WRITE(*,416)
+	IF((OPTION.LT.'1').OR.(OPTION.GT.'6')) THEN
+!	WRITE(*,1531)
+1531	FORMAT(//' * ENTER INTEGER NUMBER (1-6) ONLY',/, &
+     &  ' *      REENTER PLEASE ! ',/)
+	GOTO 1527 
+	ENDIF
+	
+1532	continue
+!1532	WRITE(*,1433)
+	READ(*,1434,ERR=1532) NROW
+!	WRITE(*,421)
+	IF((NROW.LT.1).OR.(NROW.GT.12)) THEN
+!	WRITE(*,1436)
+	GOTO 1532	
+ 	ENDIF
+	IF (OPTION.EQ.'1') THEN
+	CVAR=' RFRAC'
+	ELSEIF(OPTION.EQ.'2') THEN
+	CVAR='PERWET'
+	ELSEIF(OPTION.EQ.'3') THEN
+	CVAR=' TMAX '
+	ELSEIF(OPTION.EQ.'4') THEN
+	CVAR=' TMIN '
+	ELSEIF(OPTION.EQ.'5') THEN
+	CVAR='SOLRAD'
+	ELSE
+	CVAR=' WINDS'
+	ENDIF
+1533	continue
+!1533	WRITE(*,1438) CVAR,NROW
+	READ(*,*,ERR=1533) VARN(NROW)
+	IF (OPTION.EQ.'1') THEN
+	RFRAC(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'2') THEN
+	PERWET(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'3') THEN
+	TMAX(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'4') THEN
+	TMIN(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'5') THEN
+	SOLRAD(NROW)=VARN(NROW)
+	ELSE
+	WINDS(NROW)=VARN(NROW)
+	ENDIF
+	GOTO 1341 
+	ENDIF	
+1601	continue
+!1601	WRITE (*,1417)
+!	READ(*,105) ANSWER
+      ANSWER = '0'
+!	WRITE(*,416)
+	IF((ANSWER.LT.'0').OR.(ANSWER.GT.'2')) THEN
+!	WRITE(*,1419)
+	GOTO 1601
+	ELSEIF (ANSWER.EQ.'0') THEN
+	GOTO 140
+	ELSEIF (ANSWER.EQ.'1') THEN
+1621	continue
+!1621	WRITE(*,1423)
+!	READ(*,130, ERR=1621) FIDATA
+!	OPEN(UNIT=1,STATUS='UNKNOWN',FILE=FIDATA,ERR=1621)
+!	WRITE(1,1420) HEADER,ALAT,NYR
+!	DO 1625 I=1,12
+!	  WRITE(1,1523) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+!     &    ,VPSR(I)
+!1625	CONTINUE
+!	CLOSE(UNIT=1)
+	GOTO 140
+	ELSEIF (ANSWER.EQ.'2') THEN
+!	WRITE(*,421)
+1627	continue
+!1627	WRITE(*,1628)
+1628	FORMAT(//,' *   OPTIONS FOR THE VARIABLE TO BE CHANGED:',//, &
+     &  ' *     1  FRACTION OF WET DAY',/, &
+     &  ' *     2  RAIN PER WET DAY',/, &
+     &  ' *     3  MAXIMUM TEMPERATURE',/, &
+     &  ' *     4  MINIMUM TEMPERATURE',/, &
+     &  ' *     5  SOLAR RADIATION',/, &
+     &  ' *     6  HUMIDITY',//, &
+     &  ' * ENTER AN INTEGER NUMBER (1-6) FOR SELECTION :',/,$)
+	READ (*,105) OPTION
+!	WRITE(*,416)
+	IF((OPTION.LT.'1').OR.(OPTION.GT.'6')) THEN
+!	WRITE(*,1531)
+	GOTO 1627 
+	ENDIF
+	
+1632	continue
+!1632	WRITE(*,1433)
+	READ(*,1434,ERR=1632) NROW
+!	WRITE(*,421)
+	IF((NROW.LT.1).OR.(NROW.GT.12)) THEN
+!	WRITE(*,1436)
+	GOTO 1632	
+ 	ENDIF
+	IF (OPTION.EQ.'1') THEN
+	CVAR=' RFRAC'
+	ELSEIF(OPTION.EQ.'2') THEN
+	CVAR='PERWET'
+	ELSEIF(OPTION.EQ.'3') THEN
+	CVAR=' TMAX '
+	ELSEIF(OPTION.EQ.'4') THEN
+	CVAR=' TMIN '
+	ELSEIF(OPTION.EQ.'5') THEN
+	CVAR='SOLRAD'
+	ELSE
+	CVAR=' VPSR '
+	ENDIF
+1633	continue
+!1633	WRITE(*,1438) CVAR,NROW
+	READ(*,*,ERR=1633) VARN(NROW)
+	IF (OPTION.EQ.'1') THEN
+	RFRAC(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'2') THEN
+	PERWET(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'3') THEN
+	TMAX(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'4') THEN
+	TMIN(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'5') THEN
+	SOLRAD(NROW)=VARN(NROW)
+	ELSE
+	VPSR(NROW)=VARN(NROW)
+	ENDIF
+	GOTO 1341 
+	ENDIF
+1701	continue
+!1701	WRITE (*,1417)
+      ANSWER = '0'
+!	READ(*,105) ANSWER
+!	WRITE(*,416)
+	IF((ANSWER.LT.'0').OR.(ANSWER.GT.'2')) THEN
+!	WRITE(*,1419)
+	GOTO 1701
+	ELSEIF (ANSWER.EQ.'0') THEN
+	GOTO 140
+	ELSEIF (ANSWER.EQ.'1') THEN
+1721	continue
+!1721	WRITE(*,1423)
+!	READ(*,130, ERR=1721) FIDATA
+!	OPEN(UNIT=1,STATUS='UNKNOWN',FILE=FIDATA,ERR=1721)
+!	WRITE(1,1420) HEADER,ALAT,NYR
+1723	FORMAT(2X,7(F8.3,1X))
+	DO 1725 I=1,12
+!	  WRITE(1,1723) RFRAC(I),PERWET(I),TMAX(I),TMIN(I),SOLRAD(I) &
+!     &    ,VPSR(I),WINDS(I)
+1725	CONTINUE
+!	CLOSE(UNIT=1)
+	GOTO 140
+	ELSEIF (ANSWER.EQ.'2') THEN
+!	WRITE(*,421)
+1727  continue
+!1727	WRITE(*,1728)
+1728	FORMAT(//' *  OPTIONS FOR THE VARIABLE TO BE CHANGED:',//,	 &
+     &  ' *     1  FRACTION OF WET DAY',/, &
+     &  ' *     2  RAIN PER WET DAY',/, &
+     &  ' *     3  MAXIMUM TEMPERATURE',/, &
+     &  ' *     4  MINIMUM TEMPERATURE',/, &
+     &  ' *     5  SOLAR RADIATION',/, &
+     &  ' *     6  HUMIDITY',/, &
+     &  ' *     7  WIND SPEED',/, &
+     &  /' * ENTER AN INTEGER NUMBER (1-7) FOR SELECTION :',//,$)
+	READ (*,105) OPTION
+!	WRITE(*,416)
+	IF((OPTION.LT.'1').OR.(OPTION.GT.'7')) THEN
+!	WRITE(*,1731)
+1731	FORMAT(//,' * ENTER INTEGER NUMBER (1-7) ONLY',/, &
+     &  ' *      REENTER PLEASE ! ',/)
+	GOTO 1727 
+	ENDIF
+	
+1732	continue
+!1732	WRITE(*,1433)
+	READ(*,1434,ERR=1732) NROW
+!	WRITE(*,421)
+	IF((NROW.LT.1).OR.(NROW.GT.12)) THEN
+!	WRITE(*,1436)
+	GOTO 1732	
+ 	ENDIF
+	IF (OPTION.EQ.'1') THEN
+	CVAR=' RFRAC'
+	ELSEIF(OPTION.EQ.'2') THEN
+	CVAR='PERWET'
+	ELSEIF(OPTION.EQ.'3') THEN
+	CVAR=' TMAX '
+	ELSEIF(OPTION.EQ.'4') THEN
+	CVAR=' TMIN '
+	ELSEIF(OPTION.EQ.'5') THEN
+	CVAR='SOLRAD'
+	ELSEIF(OPTION.EQ.'6') THEN
+	CVAR=' VPSR '
+	ELSE
+	CVAR=' WINDS'
+	ENDIF
+1733	continue
+!1733	WRITE(*,1438) CVAR,NROW
+	READ(*,*,ERR=1733) VARN(NROW)
+	IF (OPTION.EQ.'1') THEN
+	RFRAC(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'2') THEN
+	PERWET(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'3') THEN
+	TMAX(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'4') THEN
+	TMIN(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'5') THEN
+	SOLRAD(NROW)=VARN(NROW)
+	ELSEIF(OPTION.EQ.'6') THEN
+	VPSR(NROW)=VARN(NROW)
+	ELSE
+	WINDS(NROW)=VARN(NROW)
+	ENDIF
+	GOTO 1341 
+	ENDIF
+140	continue
+!140	WRITE(*,421)
+!	WRITE (*, 150)
+150	FORMAT (////' OUTPUT FILENAME (FOR PARAMETERS): ',$)
+!	READ (*,130, ERR=140) OTFIL
+      OTFIL = 'penn.param'
+	OUTFIL=OTFIL
+!****GLOBPHOT
+	!OPEN (UNIT=2, STATUS='UNKNOWN', FILE=OUTFIL, ERR=140)
+!	WRITE(6,1196)
+
+1196	FORMAT(/////,' THE PARAMETER FILE IS PRINTED BELOW:',/)
+!	WRITE(6,197) HEADER, NYR, KGEN, ALAT, KTCF, KRCF
+        HEADER = 'HEADER'
+	!WRITE(2,198) HEADER, NYR, KGEN, ALAT, KTCF, KRCF
+	pHEADER = HEADER
+        pNYR = NYR
+        pKGEN = KGEN
+        pALAT = ALAT
+        pKTCF = KTCF
+        pKRCF = KRCF
+!****GLOBPHOT
+197	FORMAT(1X,A69/1X,2I5,F6.1,2I5)
+198	FORMAT(A69/2I5,F6.1,2I5)
+! ... ABOVE LINE FIXES CERTAIN PARAMETERS IN SIMULATION
+	DO 300 I=1,12
+	  IF (PWUNIT.EQ.'IN') THEN
+	   PERWET(I)=25.4*PERWET(I)
+	  ENDIF
+	  IF (MXUNIT.EQ.'C') THEN
+	   TMAX(I)=1.8*TMAX(I)+32.0
+          ENDIF
+          IF(MIUNIT.EQ.'C') THEN
+	   TMIN(I)=1.8*TMIN(I)+32.0
+          ENDIF
+	  IF(SRUNIT.EQ.'LANGLEY/DAY') THEN
+	   SOLRAD(I)=.04189*SOLRAD(I)
+	  ENDIF
+	  IF((NFS.EQ.1).OR.(NFS.EQ.2)) GOTO 299
+           IF(HYUNIT.EQ.'C(DEWP)') THEN
+	    VPSR(I)=6.108*EXP(17.27*VPSR(I)/(237.3+VPSR(I)))
+	    ELSEIF (HYUNIT.EQ.'F(DEWP)') THEN
+	    VPSR(I)=5.0/9.0*(VPSR(I)-32.0)
+	    VPSR(I)=6.108*EXP(17.27*VPSR(I)/(237.3+VPSR(I)))	
+	   ENDIF
+	 IF(NFS.EQ.3) GOTO 300
+299	  IF(NFS.EQ.1) GOTO 300
+	   IF(WSUNIT.EQ.'MILE/HOUR') THEN
+	    WINDS(I)=.4469*WINDS(I) 
+	   ENDIF	
+300	CONTINUE
+	
+     	PWDm = 0.0
+	RFRAC(13) = 0.0
+	DO 200 I = 1, 12
+         IF((NFS.EQ.1).OR.(NFS.EQ.3)) GOTO 310
+          CC(I) = -.7703+1.32366*WINDS(I)
+	  KAY(I) = -.6065+1.1354*WINDS(I)-.18185*WINDS(I)*WINDS(I)
+	  IF (KAY(I).LT.0.7) THEN 
+	  KAY(I) = 0.7
+	  ENDIF    
+310	  PWD(I) = 0.75 * RFRAC(I)
+	  PWDm = PWDm + PWD(I) / 12.0
+	  RFRAC(13) = RFRAC(13) + RFRAC(I) / 12.0
+	  PWW(I) = 0.25 + PWD(I)
+	  BETA(I) = -2.16 + 1.83 * PERWET(I)
+	  IF (BETA(I).LT.1.1) THEN
+	  BETA(I) = 1.1
+	  ENDIF
+	  ALPHAP(I) = PERWET(I) / BETA(I)
+200	CONTINUE
+!
+	CALL FOURI2_WG(12, TMAX, TXMf, ATX, PEAKTX)
+	ATX = ABS(ATX)
+	CALL FOURI2_WG(12, TMIN, TN, ATN, PEAKTN)
+	ATN = ABS(ATN)
+	CALL FOURI2_WG(12, SOLRAD, SAVG, AR, PEAKSR)
+	AR = ABS(AR)
+	IF((NFS.EQ.1).OR.(NFS.EQ.2)) GOTO 320
+        CALL FOURI2_WG(12, VPSR, VP, AVP, PEAKVP)
+        AVP = ABS(AVP)
+!
+320	TDIFF = 9.67 - 27.4 * PWDm
+	TDIFF = ABS(TDIFF)
+	TXMD = TXMf + RFRAC(13) * TDIFF
+	TXMW = TXMf - (1.0-RFRAC(13)) * TDIFF
+	CVTX = 0.536 - 0.00573 * TXMf
+	IF (1..LT.ABS(CVTX)) THEN
+	IF (10..LT.ABS(CVTX)) THEN
+	CVTX=CVTX/100.
+	ELSE
+        CVTX=CVTX/10.
+	ENDIF
+	ENDIF
+
+	ACVTX = - EXP(-4.63 + 0.0952 * ATX)
+	IF (1..LT.ABS(ACVTX)) THEN
+	IF (10..LT.ABS(ACVTX)) THEN
+	ACVTX=ACVTX/100.
+	ELSE
+        ACVTX=ACVTX/10.
+	ENDIF
+	ENDIF
+	ACVTX = - ABS(ACVTX)
+!
+	CVTN = EXP( - 0.0466 * TN)
+	IF (1..LT.ABS(CVTN)) THEN
+	IF (10..LT.ABS(CVTN)) THEN
+	CVTN=CVTN/100.
+	ELSE
+        CVTN=CVTN/10.
+	ENDIF
+	ENDIF
+
+	ACVTN = - EXP ( -4.64 + 0.146 * ATN)
+	IF (1..LT.ABS(ACVTN)) THEN
+	IF (10..LT.ABS(ACVTN)) THEN
+	ACVTN=ACVTN/100.
+	ELSE
+        ACVTN=ACVTN/10.
+	ENDIF
+	ENDIF
+	ACVTN = - ABS(ACVTN)
+!
+!  SDIFF EQN WAS FIT ON LANGLEYS/DAY, SO CONVERT...
+	SAVG = 23.87*SAVG
+	SDIFF = 410 - 3.21 * ALAT - 0.350 * SAVG 
+	SDIFF = ABS(SDIFF)
+	RMD = SAVG + RFRAC(13) * SDIFF
+	RMW = SAVG - (1.0-RFRAC(13)) * SDIFF
+! ...AND CONVERT BACK TO 10**6 J/M**2/DAY...
+	RMW = RMW * 0.04189
+	RMD = RMD * 0.04189
+!  USE RICHARDSON'S (FIXED) VALUES HERE:
+	CVRD = 0.24
+	ACVRD = -0.08
+	CVRW = 0.48
+	ACVRW = -0.13
+!
+	IF((NFS.EQ.1).OR.(NFS.EQ.2)) GOTO 330
+	CVVP = -0.76332-0.037704*VP+0.57311*LOG(VP)+0.00070759*EXP(AVP)
+	IF (1..LT.ABS(CVVP)) THEN
+	IF (100..LT.ABS(CVVP)) THEN
+	CVVP=CVVP/1000.
+	ELSEIF (10..LT.ABS(CVVP)) THEN
+	CVVP=CVVP/100.
+	ELSE 
+	CVVP=CVVP/10.
+	ENDIF
+	ENDIF
+	ACVVP =.9826+.00052682*VP**2-0.41794*LOG(VP)-0.00016956*EXP(AVP)
+	IF (ABS(ACVVP).GT.1.) THEN
+	IF (ABS(ACVVP).GT.100.) THEN
+	ACVVP=ACVVP/1000.
+	ELSEIF (ABS(ACVVP).GT.10.) THEN
+	ACVVP=ACVVP/100.
+	ELSE
+	ACVVP=ACVVP/10.
+	ENDIF
+	ENDIF 	
+	ACVVP = -1*ABS(ACVVP)
+330     IF((NFS.EQ.1).OR.(NFS.EQ.3)) GOTO 340
+!****GLOBPHOT
+	!WRITE(2,499) (CC(I),I=1,12)
+        pCC (:) = CC (:)
+	!WRITE(2,499) (KAY(I),I=1,12)
+        pKAY (:) = KAY (:)
+!	WRITE(6,505) (CC(I),I=1,12)
+!	WRITE(6,505) (KAY(I),I=1,12)
+340     CONTINUE
+!340	WRITE(2,499) (PWW(I),I=1,12)
+        pPWW (:) = PWW (:)
+	!WRITE(2,499) (PWD(I),I=1,12)
+        pPWD (:) = PWD (:)
+!	WRITE(6,505) (PWW(I),I=1,12)
+!	WRITE(6,505) (PWD(I),I=1,12)
+	!WRITE(2,499) (ALPHAP(I),I=1,12)
+        pALPHAP (:) = ALPHAP (:)
+	!WRITE(2,499) (BETA(I),I=1,12)
+        pBETA (:) = BETA (:)
+!	WRITE(6,505) (ALPHAP(I),I=1,12)
+!	WRITE(6,505) (BETA(I),I=1,12)
+499	FORMAT(12F6.2)
+!4999	FORMAT(12F6.3)
+505	FORMAT(1X,12F6.2)
+!5055	FORMAT(1X,12F6.3)
+!	WRITE(6,915) TXMD,ATX,CVTX,ACVTX,PEAKTX
+	!WRITE(2,910) TXMD,ATX,CVTX,ACVTX,PEAKTX
+        pTXMD = TXMD
+        pATX = ATX
+        pCVTX = CVTX
+        pACVTX = ACVTX
+        pPEAKTX = PEAKTX
+910	FORMAT(F7.1,F7.2,2F7.2,F7.1)
+915	FORMAT(1X,F7.1,F7.2,2F7.2,F7.1)
+!	WRITE(6,915) TXMW
+	!WRITE(2,910) TXMW
+        pTXMW = TXMW
+! 	WRITE(6,915) TN,ATN,CVTN,ACVTN,PEAKTN
+	!WRITE(2,910) TN,ATN,CVTN,ACVTN,PEAKTN
+        pTN = TN
+        pATN = ATN
+        pCVTN = CVTN
+        pACVTN = ACVTN
+        pPEAKTN = PEAKTN
+!	WRITE(6,935) RMD, AR, PEAKSR, CVRD, ACVRD
+	!WRITE(2,530) RMD, AR, PEAKSR, CVRD, ACVRD
+	pRMD = RMD
+	pAR = AR
+	pPEAKSR = PEAKSR
+	pCVRD = CVRD
+	pACVRD = ACVRD
+530	FORMAT(2F7.2,F7.1,2F7.2)
+935	FORMAT(1X,2F7.2,F7.1,2F7.2)
+	!WRITE(2,540) RMW, CVRW, ACVRW
+	pRMW = RMW
+	pCVRW = CVRW
+	pACVRW = ACVRW
+!	WRITE(6,545) RMW, CVRW, ACVRW
+540	FORMAT(F7.2,2F7.2)
+545	FORMAT(1X,F7.2,2F7.2)
+	IF((NFS.EQ.1).OR.(NFS.EQ.2)) GOTO 350
+        !WRITE(2,960) VP,AVP,PEAKVP,CVVP,ACVVP
+        ppVP = VP
+        pAVP = AVP
+        pPEAKVP = PEAKVP
+        pCVVP = CVVP
+        pACVVP = ACVVP
+!	WRITE(6,565) VP,AVP,PEAKVP,CVVP,ACVVP
+565	FORMAT(1X,2F7.2,F7.1,2F7.2)
+960     FORMAT(2F7.2,F7.1,2F7.2)
+350     CONTINUE
+!350	CLOSE(UNIT=2)
+!****GLOBPHOT
+!	WRITE(*,580)
+580	FORMAT(/////,' * DO YOU WANT TO RUN THE',/,  &
+     &  ' *  SIMULATION PROGRAM ? (Y/N)',/,$)
+585	CONTINUE
+!     READ(*,588,ERR=590) ANSWER
+      ANSWER = 'Y'
+588	FORMAT(A1)
+	IF((ANSWER.EQ.'N').OR.(ANSWER.EQ.'n')) GOTO 650
+	IF((ANSWER.NE.'N').AND.(ANSWER.NE.'Y').AND.(ANSWER.NE.'n') &
+     &  .AND.(ANSWER.NE.'y')) GOTO 590 
+	GOTO 659
+590	continue
+!590	WRITE(*,599) 
+599	FORMAT(/,' * ENTER <Y> OR <N> ONLY , REENTER ! '///)
+	GOTO 585
+!
+659	PWUNIT='MM'
+	MXUNIT='C'
+	MIUNIT='C'
+	SRUNIT='MJ/M*M/DAY '
+	HYUNIT='MPa(VP)'
+	WSUNIT='METER/SEC'
+!
+	IF (NFS.EQ.1) THEN
+	 ASSIGN 2500 TO NFST
+	 ELSEIF (NFS.EQ.2) THEN
+	 ASSIGN 2600 TO NFST
+	 ELSEIF (NFS.EQ.3) THEN
+	 ASSIGN 2700 TO NFST
+	 ELSE 
+	 ASSIGN 2800 TO NFST
+	ENDIF
+!	WRITE(*,403)
+	GOTO NFST (2500, 2600, 2700, 2800)
+
+!
+2500	continue
+!2500	WRITE(*,2510)
+2510	FORMAT(//' * THE STANDARD UNITS OF THE OUTPUT FILE ARE :',/)
+!        WRITE(*,2512) FRUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT
+2512   	FORMAT('/*  1.  NUMBER OF WET DAYS :',A3,/ &
+     &  ' *  2.  RAINFALL           :',A2,/ &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/ &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/ &
+     &  ' *  5.  SOLAR RADIATION    :',A11,// &
+     &  ' * DO YOU NEED TO MAKE ANY CHANGES ?'/)
+2515	continue
+!2515	WRITE(*,517)
+	READ(*,219) VNUM
+!	WRITE(*,416)
+	IF ((VNUM.LT.'1').OR.(VNUM.GT.'5')) THEN 
+!	WRITE(*,521)
+	GOTO 2560
+	 ELSEIF (VNUM.EQ.'1') THEN
+ 	GOTO 2400
+	 ELSEIF (VNUM.EQ.'2') THEN 
+2522	continue
+!2522	WRITE(*,416)		
+!	 WRITE(*,223)
+	 READ(*,225,ERR=2522) NANS
+	IF(NANS.EQ.1) THEN
+	PWUNIT='MM'
+	ELSEIF(NANS.EQ.2) THEN
+	PWUNIT='IN'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,227)
+	  GOTO 2522
+	  ENDIF
+	  GOTO 2560 
+	  ELSEIF (VNUM.EQ.'3') THEN 
+2528	continue
+!2528	WRITE(*,416)
+!	  WRITE(*,229)
+	READ(*,225,ERR=2528) NANS
+	IF(NANS.EQ.1) THEN
+	MXUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MXUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 2528
+	  ENDIF
+	  GOTO 2560        
+          ELSEIF (VNUM.EQ.'4') THEN 
+2534	continue
+!2534	WRITE(*,416)
+!	  WRITE(*,235)
+	READ(*,225,ERR=2534) NANS
+	IF(NANS.EQ.1) THEN
+	MIUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MIUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 2534
+	  ENDIF
+	  GOTO 2560 
+	  ELSE
+2536    continue
+!2536    WRITE(*,416)
+!	   WRITE(*,237)
+	  READ(*,225,ERR=2536) NANS
+	IF(NANS.EQ.1) THEN
+	SRUNIT='MJ/M*M/DAY '
+	ELSEIF(NANS.EQ.2) THEN
+	SRUNIT='LANGLEY/DAY'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,241)
+	  GOTO 2536
+	  ENDIF
+	  ENDIF
+2560	continue
+!2560	WRITE(*,421)
+!	WRITE(*,2265)
+2265	FORMAT(/////' * NOW THE NEW OUTPUT UNITS ARE:'/)
+!	WRITE(*,2568) FRUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT
+2568	FORMAT(//' *  1.  NUMBER OF WET DAYS :',A3,/,  &
+     &  ' *  2.  RAINFALL           :',A2,/, &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/, &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/, &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/)
+	GOTO 2515
+
+2600	continue
+!2600	WRITE(*,2510)
+!        WRITE(*,2612) FRUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,WSUNIT
+2612   	FORMAT(/' *  1.  NUMBER OF WET DAYS :',A3,/ &
+     &  ' *  2.  RAINFALL           :',A2,/ &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/ &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/ &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/ &
+     &  ' *  6.  WIND SPEED         :',A9,/ &
+     &  ' * DO YOU NEED TO MAKE ANY CHANGES ?'/)
+2615	continue
+!2615	WRITE(*,2617)
+2617	FORMAT(/,' *     OPTIONS:',//, &
+     &  ' *   1 USE UNITS SHOWN ABOVE',/, &
+     &  ' *   2 CHANGE THE UNIT OF RAINFALL <MM OR IN>',/, &
+     &  ' *   3 CHANGE THE UNIT OF MAXIMUM TEMPERATURE <C OR F>',/, &
+     &  ' *   4 CHANGE THE UNIT OF MINIMUM TEMPERATURE <C OR F>',/, &
+     &  ' *   5 CHANGE THE UNIT OF SOLAR RADIATION <MJ/M*M/DAY ' &
+     &  'OR LANGLEY/DAY>'/ &
+     &  ' *   6 CHANGE THE UNIT OF WIND SPEED <METER/SEC OR ' &
+     &  'MILE/HOUR>',//, &
+     &  ' * ENTER AN INTEGER NUMBER (1-6) FOR OPTION SELECTION :',/,$)
+!	READ(*,219) VNUM
+      VNUM = '1'
+!	WRITE(*,421)
+	IF ((VNUM.LT.'1').OR.(VNUM.GT.'6')) THEN 
+!	WRITE(*,621)
+	GOTO 2660
+	 ELSEIF (VNUM.EQ.'1') THEN
+ 	GOTO 2400
+	 ELSEIF (VNUM.EQ.'2') THEN 
+2622	continue
+!2622	WRITE(*,421)
+!	 WRITE(*,223)
+	 READ(*,225,ERR=2622) NANS
+	IF(NANS.EQ.'1') THEN
+	PWUNIT='MM'
+	ELSEIF(NANS.EQ.2) THEN
+	PWUNIT='IN'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,227)
+	  GOTO 2622
+	  ENDIF
+	  GOTO 2660 
+	  ELSEIF (VNUM.EQ.'3') THEN 
+2628	continue
+!2628	WRITE(*,421)
+!	  WRITE(*,229)
+	READ(*,225,ERR=2628) NANS
+	IF(NANS.EQ.1) THEN
+	MXUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MXUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 2628
+	  ENDIF
+	  GOTO 2660        
+          ELSEIF (VNUM.EQ.'4') THEN 
+2634	continue
+!2634	WRITE(*,421)
+!	  WRITE(*,235)
+	READ(*,225,ERR=2634) NANS
+	IF(NANS.EQ.1) THEN
+	MIUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MIUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 2634
+	  ENDIF
+	  GOTO 2660 
+	  ELSEIF(VNUM.EQ.'5') THEN
+2636    continue
+!2636    WRITE(*,421)
+!	  WRITE(*,237)
+	  READ(*,225,ERR=2636) NANS
+	IF(NANS.EQ.1) THEN
+	SRUNIT='MJ/M*M/DAY '
+	ELSEIF(NANS.EQ.2) THEN
+	SRUNIT='LANGLEY/DAY'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,241)
+	  GOTO 2636
+	  ENDIF
+	  GOTO 2660 
+          ELSE 
+2648	continue
+!2648	WRITE(*,421)
+!	  WRITE(*,249)
+	  READ(*,225,ERR=2648) NANS
+	IF(NANS.EQ.1) THEN
+	WSUNIT='METER/SEC' 
+	ELSEIF(NANS.EQ.2) THEN
+	WSUNIT='MILE/HOUR'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,253)
+	  GOTO 2648
+	  ENDIF
+	  ENDIF
+2660 	continue
+!2660 	WRITE(*,421)
+!	WRITE(*,2265)
+!	WRITE(*,2668) FRUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,WSUNIT
+2668	FORMAT(/' *  1.  NUMBER OF WET DAYS :',A3,/, &
+     &  ' *  2.  RAINFALL           :',A2,/, &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/, &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/, &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/, &
+     &  ' *  6.  WIND SPEED         :',A9/)
+! 	WRITE(*,285)
+	GOTO 2615
+
+2700	continue
+!2700	WRITE(*,2510)
+!        WRITE(*,2712) FRUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,HYUNIT
+2712   	FORMAT(/' *  1.  NUMBER OF WET DAYS :',A3,/ &
+     &  ' *  2.  RAINFALL           :',A2,/ &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/ &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/ &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/ &
+     &  ' *  6.  HUMIDITY           :',A7,// &
+     &  ' * DO YOU NEED TO MAKE ANY CHANGES ?'/)
+2715	continue
+!2715	WRITE(*,717)
+!	READ(*,219) VNUM
+      VNUM = '1'
+!	WRITE(*,421)
+	IF ((VNUM.LT.'1').OR.(VNUM.GT.'6')) THEN 
+!	WRITE(*,721)
+	GOTO 2760
+	 ELSEIF (VNUM.EQ.'1') THEN
+ 	GOTO 2400
+	 ELSEIF (VNUM.EQ.'2') THEN 
+2722	continue
+!2722	WRITE(*,421)
+!	 WRITE(*,223)
+	 READ(*,225,ERR=2722) NANS
+	IF(NANS.EQ.1) THEN
+	PWUNIT='MM'
+	ELSEIF(NANS.EQ.2) THEN
+	PWUNIT='IN'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,227)
+	  GOTO 2722
+	  ENDIF
+	  GOTO 2760 
+	  ELSEIF (VNUM.EQ.'3') THEN 
+2728	continue
+!2728	WRITE(*,421)
+!	 WRITE(*,229)
+	READ(*,225,ERR=2728) NANS
+	IF(NANS.EQ.1) THEN
+	MXUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MXUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 2728
+	  ENDIF
+	  GOTO 2760        
+          ELSEIF (VNUM.EQ.'4') THEN 
+2734	continue
+!2734	WRITE(*,421)
+!	  WRITE(*,235)
+	READ(*,225,ERR=2734) NANS
+	IF(NANS.EQ.1) THEN
+	MIUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MIUNIT='F'
+	ENDIF	
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 2734
+	  ENDIF
+	  GOTO 2760 
+	  ELSEIF(VNUM.EQ.'5') THEN
+2736    continue
+!2736    WRITE(*,421)
+!	  WRITE(*,237)
+	  READ(*,225,ERR=2736) NANS
+	IF(NANS.EQ.1) THEN
+	SRUNIT='MJ/M*M/DAY '
+	ELSEIF(NANS.EQ.2) THEN
+	SRUNIT='LANGLEY/DAY'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,241)
+	  GOTO 2736
+	  ENDIF
+	  GOTO 2760 
+          ELSE 
+2742	continue
+!2742	WRITE(*,421)
+!	  WRITE(*,243)
+	READ(*,225,ERR=2742) NANS
+	IF(NANS.EQ.1) THEN
+	HYUNIT='MPa(VP)'
+	ELSEIF (NANS.EQ.2) THEN
+	HYUNIT='C(DEWP)'
+	ELSEIF (NANS.EQ.3) THEN
+	HYUNIT='F(DEWP)'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2).AND. &
+     &       (NANS.NE.3))  THEN
+!          WRITE(*,247)
+	  GOTO 2742
+	  ENDIF
+	  GOTO 2760 
+	  ENDIF
+2760 	continue
+!2760 	WRITE(*,265)
+!	WRITE(*,2712) FRUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,HYUNIT
+! 	WRITE(*,285)
+	GOTO 2715
+
+2800	continue
+!2800	WRITE(*,2510)
+!        WRITE(*,2212) FRUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,HYUNIT,WSUNIT
+2212   	FORMAT(' *  1.  NUMBER OF WET DAYS :',A3,/ &
+     &  ' *  2.  RAINFALL           :',A2,/ &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/ &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/ &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/ &
+     &  ' *  6.  HUMIDITY           :',A7,/ &
+     &  ' *  7.  WIND SPEED         :',A9,// &
+     &  ' * DO YOU NEED TO MAKE ANY CHANGES ?',/)
+2215	continue
+!2215	WRITE(*,217)
+!	READ(*,219) VNUM
+      VNUM = '1'
+!	WRITE(*,421)
+	IF ((VNUM.LT.'1').OR.(VNUM.GT.'7')) THEN 
+!	WRITE(*,221)
+	GOTO 2260
+	 ELSEIF (VNUM.EQ.'1') THEN
+ 	GOTO 2400
+	 ELSEIF (VNUM.EQ.'2') THEN 
+2222	continue
+!2222	WRITE(*,421)
+!	 WRITE(*,223)
+	 READ(*,225,ERR=2222) NANS
+	IF(NANS.EQ.'1') THEN
+	PWUNIT='MM'
+	ELSEIF(NANS.EQ.2) THEN
+	PWUNIT='IN'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,227)
+	  GOTO 2222
+	  ENDIF
+	  GOTO 2260 
+	  ELSEIF (VNUM.EQ.'3') THEN 
+2228	continue
+!2228	WRITE(*,421) 
+!	 WRITE(*,229)
+	  READ(*,225,ERR=2228) NANS
+	IF(NANS.EQ.1) THEN
+	MXUNIT='C'
+	ELSEIF (NANS.EQ.2) THEN
+	MXUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 2228
+	  ENDIF
+	  GOTO 2260        
+          ELSEIF (VNUM.EQ.'4') THEN 
+2234	continue
+!2234	WRITE(*,421)
+!	  WRITE(*,235)
+	READ(*,225,ERR=2234) NANS
+	IF(NANS.EQ.1) THEN
+	MIUNIT='C'
+	ELSEIF(NANS.EQ.2) THEN
+	MIUNIT='F'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,233)
+	  GOTO 2234
+	  ENDIF
+	  GOTO 2260 
+	  ELSEIF(VNUM.EQ.'5') THEN
+2236    continue
+!2236    WRITE(*,421)
+!	  WRITE(*,237)
+	  READ(*,225,ERR=2236) NANS
+	IF(NANS.EQ.1) THEN
+	SRUNIT='MJ/M*M/DAY '
+	ELSEIF(NANS.EQ.2) THEN
+	SRUNIT='LANGLEY/DAY'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,241)
+	  GOTO 2236
+	  ENDIF
+	  GOTO 2260 
+          ELSEIF (VNUM.EQ.'6') THEN 
+2242	continue
+!2242	WRITE(*,421)
+!	  WRITE(*,243)
+	  READ(*,225,ERR=2242) NANS
+	IF(NANS.EQ.1) THEN
+	HYUNIT='MPa(VP)'
+	ELSEIF (NANS.EQ.2) THEN
+	HYUNIT='C(DEWP)'
+	ELSEIF (NANS.EQ.3) THEN
+	HYUNIT='F(DEWP)'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2).AND. &
+     &       (NANS.NE.3))  THEN
+!          WRITE(*,247)
+	  GOTO 2242
+	  ENDIF
+	  GOTO 2260 
+	  ELSEIF (VNUM.EQ.'7') THEN 
+2248	continue
+!2248	WRITE(*,421)
+!	  WRITE(*,249)
+	  READ(*,225,ERR=2248) NANS
+	IF(NANS.EQ.1) THEN
+	WSUNIT='METER/SEC' 
+	ELSEIF(NANS.EQ.2) THEN
+	WSUNIT='MILE/HOUR'
+	ENDIF
+	  IF((NANS.NE.1).AND.(NANS.NE.2)) THEN
+!          WRITE(*,253)
+	  GOTO 2248
+	  ENDIF
+	  ENDIF
+2260 	continue
+!2260 	WRITE(*,2265)
+!	WRITE(*,2268) FRUNIT,PWUNIT,MXUNIT,MIUNIT,SRUNIT,HYUNIT,WSUNIT
+2268	FORMAT(' *  1.  NUMBER OF WET DAYS :',A3,/, &
+     &  ' *  2.  RAINFALL           :',A2,/, &
+     &  ' *  3.  MAXIMUM TEMPERATURE:',A1,/, &
+     &  ' *  4.  MINIMUM TEMPERATURE:',A1,/, &
+     &  ' *  5.  SOLAR RADIATION    :',A11,/, &
+     &  ' *  6.  HUMIDITY           :',A7,/, &
+     &  ' *  7.  WIND SPEED         :',A9,/)
+! 	WRITE(*,285)
+	GOTO 2215
+!
+      close (1)
+2400	CALL WEASHO_WG
+650	CONTINUE
+!----------------------------------------------------------------------!
+RETURN
+END SUBROUTINE SIMMETEO_WG
