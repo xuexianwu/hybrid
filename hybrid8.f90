@@ -1157,7 +1157,8 @@ endif
 !---------------------------------------------------------------------!
 if (sclim) then
   open (50,file='OUT/'//sub_ouf//'/nee.txt',status='replace') !Laszlo
-  open (51,file='OUT/'//sub_ouf//'/evapo.txt',status='replace')
+  open (51,file='OUT/'//sub_ouf//'/evapo.txt',status='replace') !Laszlo
+  open (52,file='OUT/'//sub_ouf//'/rain.txt',status='replace') !Laszlo
   if (rcp == '8p5') then
     open (19,file='isi/RCP85_MIDYEAR_CONCENTRATIONS.DAT',status='old')
     do i = 1, 39
@@ -1382,8 +1383,6 @@ do while (itime < itimee)
       tak_ij  (i0,j0,:) = tak (:) ! K
       qsrf_ij (i0,j0,:) = qa  (:) ! kg/kg
       rad_ij  (i0,j0,:) = rg  (:) ! W/m^2
-!      write(*,*) rad_ij (i0,j0,:)	   
-!      stop
       ld_ij   (i0,j0,:) = ld  (:) ! W/m^2
       sbeta_ij   (i0,j0,:) = sbeta   (:) ! (ratio)
       ipar_df_ij (i0,j0,:) = ipar_df (:) ! umol(PAR)/m^2/s
@@ -1468,10 +1467,17 @@ do while (itime < itimee)
   ! Keep note of run at noon each day.
   !--------------------------------------------------------------------!
   write (*,*) 'jyear jday itime ',jyear,jday,itime !Laszlo
-  write(*,*) npp !Laszlo
-  write(*,*) fb*evap_tot(1)+fv*evap_tot(2) !Laszlo
+  write(*,*) 'NPP=' ,npp !Laszlo
+  write(*,*) 'EVAPO=' ,fb*evap_tot(1)+fv*evap_tot(2) !Laszlo
+  !write(*,*) 'Plant respiration=',ra !Laszlo
+  !write(*,*) 'Soil respiration=',rh !Laszlo
+  write (*,*)'Precipitation=',prec(olon,olat) !Laszlo
+  
+  !----------------------------------------------------------------------! 
   write(50,*) npp !Laszlo
   write(51,*) fb*evap_tot(1)+fv*evap_tot(2) !Laszlo
+  write(52,*) prec(olon,olat) !Laszlo
+  
 
   if (mod (itime+nday/2, nday) == 0) then
   write (90,'(3i8,25f10.4)') jyear,                   & !  1
@@ -1696,6 +1702,7 @@ if (sclim) then
 endif
 close (50) !Laszlo
 close (51) !Laszlo
+close (52) !Laszlo
 !----------------------------------------------------------------------!
 ! Diagnostic of global field of mean soil water (m).
 !----------------------------------------------------------------------!
